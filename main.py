@@ -19,15 +19,4 @@ def get_team_id(name):
     return None
 
 
-def get_team(name):
-    team_id = get_team_id(name)
-    return {
-        'stats': stats.loc[team_id],
-        'roster': roster.loc[roster['team_id'] == team_id],
-        'schedule': schedule.loc[schedule['team_id'] == team_id]
-    }
-
-
-michigan = get_team('Michigan')
-
-
+print(stats)
