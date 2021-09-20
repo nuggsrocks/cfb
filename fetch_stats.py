@@ -77,7 +77,12 @@ def scrape_roster(team_id):
     new_dict['number'] = {}
 
     for index, value in new_dict['name'].items():
-        number_index = re.search('[0-9]{1,2}', value).span()[0]
+        try:
+            number_index = re.search('[0-9]{1,2}', value).span()[0]
+        except AttributeError:
+            new_dict['number'][index] = None
+            continue
+
         new_dict['number'][index] = value[number_index:]
         new_dict['name'][index] = value[:number_index]
 
@@ -107,12 +112,7 @@ def scrape_roster(team_id):
     return new_dict
 
 
-game_index = 0
-
-
 def scrape_stats(team):
-    global game_index
-
     r = requests.get(
         stats_url + team['id']
     )
@@ -195,10 +195,6 @@ schedule = {}
 roster = {}
 
 for team in teams_list:
-    team_stats = scrape_stats(team)
-
-    stats[team['id']] = team_stats
-
     team_schedule = scrape_schedule(team['id'])
 
     schedule[team['id']] = team_schedule
@@ -206,6 +202,10 @@ for team in teams_list:
     team_roster = scrape_roster(team['id'])
 
     roster[team['id']] = team_roster
+
+    team_stats = scrape_stats(team)
+
+    stats[team['id']] = team_stats
 
 
 try:
