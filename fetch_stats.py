@@ -6,46 +6,11 @@ from bs4 import BeautifulSoup
 import json
 from globals import teams_list
 
+roster_url = 'https://www.espn.com/college-football/team/roster/_/id/'
+
 schedule_url = 'https://www.espn.com/college-football/team/schedule/_/id/'
 
 stats_url = 'https://www.espn.com/college-football/team/schedule/_/id/'
-
-roster_url = 'https://www.espn.com/college-football/team/roster/_/id/'
-
-
-def scrape_schedule(team_id):
-    schedule_res = requests.get(schedule_url + team_id)
-
-    schedule_df = pd.read_html(schedule_res.text, header=1)[0]
-
-    schedule_dict = schedule_df.to_dict()
-
-    col_labels = {
-        'DATE': 'date',
-        'OPPONENT': 'opponent',
-        'RESULT': 'result',
-        'W-L (CONF)': 'win_loss'
-    }
-
-    new_dict = {}
-
-    for key in schedule_dict:
-        try:
-            new_dict[col_labels[key]] = schedule_dict[key]
-        except KeyError:
-            pass
-
-    cutoff_index = None
-
-    for key, value in new_dict['date'].items():
-        if value == 'DATE':
-            cutoff_index = key
-
-    for index in range(cutoff_index, len(new_dict['date'])):
-        for key in new_dict:
-            del new_dict[key][index]
-
-    return new_dict
 
 
 def scrape_roster(team_id):
@@ -54,7 +19,8 @@ def scrape_roster(team_id):
     roster_dfs = pd.read_html(roster_res.text)
 
     roster_df = roster_dfs[0].append(roster_dfs[1], ignore_index=True).append(
-        roster_dfs[2], ignore_index=True)
+        roster_dfs[2], ignore_index=True
+    )
 
     roster_df = roster_df.drop(columns=['Unnamed: 0'])
 
@@ -108,6 +74,41 @@ def scrape_roster(team_id):
 
     for index, value in new_dict['weight'].items():
         new_dict['weight'][index] = value.replace(' lbs', '')
+
+    return new_dict
+
+
+def scrape_schedule(team_id):
+    schedule_res = requests.get(schedule_url + team_id)
+
+    schedule_df = pd.read_html(schedule_res.text, header=1)[0]
+
+    schedule_dict = schedule_df.to_dict()
+
+    col_labels = {
+        'DATE': 'date',
+        'OPPONENT': 'opponent',
+        'RESULT': 'result',
+        'W-L (CONF)': 'win_loss'
+    }
+
+    new_dict = {}
+
+    for key in schedule_dict:
+        try:
+            new_dict[col_labels[key]] = schedule_dict[key]
+        except KeyError:
+            pass
+
+    cutoff_index = None
+
+    for key, value in new_dict['date'].items():
+        if value == 'DATE':
+            cutoff_index = key
+
+    for index in range(cutoff_index, len(new_dict['date'])):
+        for key in new_dict:
+            del new_dict[key][index]
 
     return new_dict
 
@@ -168,7 +169,8 @@ def scrape_stats(team):
             'Possession': 'time_of_possession'
         }
 
-        stat_df['Matchup'] = stat_df['Matchup'].apply(lambda x: col_labels[x] if col_labels[x] else x)
+        stat_df['Matchup'] = stat_df['Matchup'].apply(
+            lambda x: col_labels[x] if col_labels[x] else x)
 
         stats_dict = stat_df.to_dict(orient='dict')
 
@@ -179,11 +181,23 @@ def scrape_stats(team):
 
         for index in range(len(stats_dict['Matchup'])):
             category = stats_dict['Matchup'][index]
-            off_value = stats_dict['off'][index]
-            def_value = stats_dict['def'][index]
 
-            new_dict['off'][category] = off_value
-            new_dict['def'][category] = def_value
+            for key in new_dict:
+                value = stats_dict[key][index]
+                if category == '3rd_down_eff' or category == '4th_down_eff':
+                    values = value.split('-')
+                    new_dict[key][category.replace('_eff', 's')] = values[0]
+                    new_dict[key][category.replace('_eff', '_att')] = values[1]
+                elif category == 'pass_eff':
+                    values = value.split('-')
+                    new_dict[key][category.replace('_eff', '_cmp')] = values[0]
+                    new_dict[key][category.replace('_eff', '_att')] = values[1]
+                elif category == 'penalties':
+                    values = value.split('-')
+                    new_dict[key]['penalties'] = values[0]
+                    new_dict[key]['penalty_yards'] = values[1]
+                else:
+                    new_dict[key][category] = value
 
         team_games.append(new_dict)
 
@@ -195,18 +209,17 @@ schedule = {}
 roster = {}
 
 for team in teams_list:
-    team_schedule = scrape_schedule(team['id'])
-
-    schedule[team['id']] = team_schedule
-
-    team_roster = scrape_roster(team['id'])
-
-    roster[team['id']] = team_roster
+    # team_roster = scrape_roster(team['id'])
+    #
+    # roster[team['id']] = team_roster
+    #
+    # team_schedule = scrape_schedule(team['id'])
+    #
+    # schedule[team['id']] = team_schedule
 
     team_stats = scrape_stats(team)
 
     stats[team['id']] = team_stats
-
 
 try:
     os.mkdir('data')
@@ -220,6 +233,6 @@ def write_file(path, data):
         f.close()
 
 
-write_file('data/schedule.json', schedule)
-write_file('data/roster.json', roster)
+# write_file('data/schedule.json', schedule)
+# write_file('data/roster.json', roster)
 write_file('data/stats.json', stats)
