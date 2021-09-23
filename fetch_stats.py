@@ -147,8 +147,8 @@ def scrape_stats(team):
         stat_df = pd.read_html(r.text, match='Matchup')[0]
 
         stat_df = stat_df.rename(columns={
-            'Unnamed: 1': 'off' if team_index == 0 else 'def',
-            'Unnamed: 2': 'off' if team_index == 1 else 'def'
+            'Unnamed: 1': 'team' if team_index == 0 else 'opp',
+            'Unnamed: 2': 'team' if team_index == 1 else 'opp'
         })
 
         col_labels = {
@@ -175,8 +175,8 @@ def scrape_stats(team):
         stats_dict = stat_df.to_dict(orient='dict')
 
         new_dict = {
-            'off': {},
-            'def': {}
+            'team': {},
+            'opp': {}
         }
 
         for index in range(len(stats_dict['Matchup'])):
@@ -209,13 +209,13 @@ schedule = {}
 roster = {}
 
 for team in teams_list:
-    # team_roster = scrape_roster(team['id'])
-    #
-    # roster[team['id']] = team_roster
-    #
-    # team_schedule = scrape_schedule(team['id'])
-    #
-    # schedule[team['id']] = team_schedule
+    team_roster = scrape_roster(team['id'])
+
+    roster[team['id']] = team_roster
+
+    team_schedule = scrape_schedule(team['id'])
+
+    schedule[team['id']] = team_schedule
 
     team_stats = scrape_stats(team)
 
@@ -233,6 +233,6 @@ def write_file(path, data):
         f.close()
 
 
-# write_file('data/schedule.json', schedule)
-# write_file('data/roster.json', roster)
+write_file('data/schedule.json', schedule)
+write_file('data/roster.json', roster)
 write_file('data/stats.json', stats)
