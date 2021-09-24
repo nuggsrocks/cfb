@@ -1,4 +1,5 @@
 import pandas as pd
+
 import json
 
 from globals import teams_list
@@ -82,28 +83,43 @@ def set_stat_dtype(series):
 stats_df = stats_df.apply(set_stat_dtype)
 
 team_df = stats_df.xs('team', level=1)
+opp_df = stats_df.xs('opp', level=1)
 
 
-def rank_teams_by_total(category):
-    df = team_df.groupby(['team_name'])
+def select_category(split, category):
+    if split == 'off':
+        df = team_df.groupby(['team_name'])
+    else:
+        df = opp_df.groupby(['team_name'])
 
     try:
-        df = df[category]
+        return df[category]
     except KeyError as exc:
         raise exc
+
+
+def rank_teams_by_total(split, category):
+    df = select_category(split, category)
 
     return df.sum().sort_values(ascending=False)
 
 
-def rank_teams_by_avg(category):
-    df = team_df.groupby(['team_name'])
-
-    try:
-        df = df[category]
-    except KeyError as exc:
-        raise exc
+def rank_teams_by_avg(split, category):
+    df = select_category(split, category)
 
     return df.mean().sort_values(ascending=False)
 
 
-print(rank_teams_by_avg('total_yards'))
+def get_team_total(team_name, split, category):
+    df = select_category(split, category)
+
+    return df.sum().loc[team_name]
+
+
+def get_team_avg(team_name, split, category):
+    df = select_category(split, category)
+
+    return df.mean().loc[team_name]
+
+
+print(rank_teams_by_avg('off', 'points'))

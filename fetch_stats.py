@@ -10,8 +10,6 @@ roster_url = 'https://www.espn.com/college-football/team/roster/_/id/'
 
 schedule_url = 'https://www.espn.com/college-football/team/schedule/_/id/'
 
-stats_url = 'https://www.espn.com/college-football/team/schedule/_/id/'
-
 
 def scrape_roster(team_id):
     roster_res = requests.get(roster_url + team_id)
@@ -115,7 +113,7 @@ def scrape_schedule(team_id):
 
 def scrape_stats(team):
     r = requests.get(
-        stats_url + team['id']
+        schedule_url + team['id']
     )
 
     soup = BeautifulSoup(r.text, 'html.parser')
@@ -143,6 +141,8 @@ def scrape_stats(team):
         team_index = boxscore_df.loc[
             lambda x: x['Unnamed: 0'] == team['code']
         ].index[0]
+
+        opp_index = 1 if team_index == 0 else 0
 
         stat_df = pd.read_html(r.text, match='Matchup')[0]
 
@@ -198,6 +198,9 @@ def scrape_stats(team):
                     new_dict[key]['penalty_yards'] = values[1]
                 else:
                     new_dict[key][category] = value
+
+        new_dict['team']['points'] = str(boxscore_df.loc[team_index].loc['T'])
+        new_dict['opp']['points'] = str(boxscore_df.loc[opp_index].loc['T'])
 
         team_games.append(new_dict)
 
