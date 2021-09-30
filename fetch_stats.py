@@ -1,6 +1,9 @@
 import requests
 import os
 import re
+import time
+from itertools import count
+import multiprocessing as mp
 import pandas as pd
 from bs4 import BeautifulSoup
 import json
@@ -170,7 +173,8 @@ def scrape_stats(team):
         }
 
         stat_df['Matchup'] = stat_df['Matchup'].apply(
-            lambda x: col_labels[x] if col_labels[x] else x)
+            lambda x: col_labels[x] if col_labels[x] else x
+        )
 
         stats_dict = stat_df.to_dict(orient='dict')
 
@@ -181,6 +185,8 @@ def scrape_stats(team):
 
         for index in range(len(stats_dict['Matchup'])):
             category = stats_dict['Matchup'][index]
+            if category == 'pass_ypa' or category == 'rush_ypa':
+                continue
 
             for key in new_dict:
                 value = stats_dict[key][index]
@@ -207,22 +213,39 @@ def scrape_stats(team):
     return team_games
 
 
-stats = {}
-schedule = {}
-roster = {}
+team_index = 14
 
-for team in teams_list:
-    team_roster = scrape_roster(team['id'])
 
-    roster[team['id']] = team_roster
+def scrape_all_data():
+    global team_index
 
-    team_schedule = scrape_schedule(team['id'])
+    roster = {}
+    schedule = {}
+    stats = {}
 
-    schedule[team['id']] = team_schedule
+    for team in teams_list:
+        print('Scraping roster for team {}...   '.format(team_index), end='\r')
 
-    team_stats = scrape_stats(team)
+        team_roster = scrape_roster(team['id'])
 
-    stats[team['id']] = team_stats
+        roster[team['id']] = team_roster
+
+        print('Scraping schedule for team {}...'.format(team_index), end='\r')
+
+        team_schedule = scrape_schedule(team['id'])
+
+        schedule[team['id']] = team_schedule
+
+        print('Scraping stats for team {}...   '.format(team_index), end='\r')
+
+        team_stats = scrape_stats(team)
+
+        stats[team['id']] = team_stats
+
+        team_index += 1
+
+    return roster, schedule, stats
+
 
 try:
     os.mkdir('data')
@@ -236,6 +259,10 @@ def write_file(path, data):
         f.close()
 
 
-write_file('data/schedule.json', schedule)
-write_file('data/roster.json', roster)
-write_file('data/stats.json', stats)
+if __name__ == '__main__':
+    roster, schedule, stats = scrape_all_data()
+
+    print('Writing files...             '.format(team_index), end='\r')
+    write_file('data/schedule.json', schedule)
+    write_file('data/roster.json', roster)
+    write_file('data/stats.json', stats)

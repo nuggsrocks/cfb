@@ -1,5 +1,15 @@
 import pandas as pd
 
+import numpy as np
+
+import matplotlib.pyplot as plt
+
+from sklearn import svm
+
+from sklearn.model_selection import train_test_split
+
+from sklearn.metrics import r2_score
+
 import json
 
 from globals import teams_list
@@ -69,6 +79,7 @@ def set_stat_dtype(series):
             minutes = int(split[0])
             seconds = int(split[1])
             return minutes * 60 + seconds
+
         return series.apply(convert_to_seconds)
     else:
         try:
@@ -86,6 +97,34 @@ team_df = stats_df.xs('team', level=1)
 opp_df = stats_df.xs('opp', level=1)
 
 
+class Split:
+    def __init__(self, df):
+        self.df = df.drop(columns=['team_name'])
+
+
+class Team:
+    def __init__(self, team_name):
+        self.df = stats_df.loc[stats_df['team_name'] == team_name]
+        self.offense = Split(self.df.xs('team', level=1))
+        self.defense = Split(self.df.xs('opp', level=1))
+
+
+class Teams:
+    def __init__(self, df):
+        self.df = df
+
+    def get_team(self, item):
+        return self.df.loc[self.df['team_name'] == item]
+
+    def rank_by_total(self, split, category):
+        return self.df.xs(split, level=1).groupby(['team_name'])[category].sum().sort_values(ascending=False)
+
+
+teams = Teams(stats_df)
+
+print(teams.rank_by_total('team', 'points'))
+
+
 def select_category(split, category):
     if split == 'off':
         df = team_df.groupby(['team_name'])
@@ -99,27 +138,30 @@ def select_category(split, category):
 
 
 def rank_teams_by_total(split, category):
-    df = select_category(split, category)
+    series = select_category(split, category)
 
-    return df.sum().sort_values(ascending=False)
+    return series.sum().sort_values(ascending=False)
 
 
 def rank_teams_by_avg(split, category):
-    df = select_category(split, category)
+    series = select_category(split, category)
 
-    return df.mean().sort_values(ascending=False)
+    return series.mean().sort_values(ascending=False)
+
+
+def rank_teams_by_median(split, category):
+    series = select_category(split, category)
+
+    return series.median().sort_values(ascending=False)
 
 
 def get_team_total(team_name, split, category):
-    df = select_category(split, category)
+    series = select_category(split, category)
 
-    return df.sum().loc[team_name]
+    return series.sum().loc[team_name]
 
 
 def get_team_avg(team_name, split, category):
-    df = select_category(split, category)
+    series = select_category(split, category)
 
-    return df.mean().loc[team_name]
-
-
-print(rank_teams_by_avg('off', 'points'))
+    return series.mean().loc[team_name]
