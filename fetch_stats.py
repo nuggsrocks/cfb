@@ -1,9 +1,6 @@
 import requests
 import os
 import re
-import time
-from itertools import count
-import multiprocessing as mp
 import pandas as pd
 from bs4 import BeautifulSoup
 import json
@@ -114,6 +111,30 @@ def scrape_schedule(team_id):
     return new_dict
 
 
+def scrape_plays(id):
+    base_url = "http://cdn.espn.com/core/college-football/playbyplay"
+
+    params = {
+        'gameId': id,
+        'xhr': 1,
+        'render': "false",
+        'userab': 18
+    }
+
+    r = requests.get(base_url, params=params)
+
+    game_json = json.loads(r.content)['gamepackageJSON']
+
+    drives = game_json['drives']['previous']
+
+    plays = []
+
+    for drive in drives:
+        plays.extend(drive['plays'])
+
+    return plays
+
+
 def scrape_stats(team):
     r = requests.get(
         schedule_url + team['id']
@@ -129,120 +150,47 @@ def scrape_stats(team):
         if re.search('game', tag['href']):
             game_links.append(tag['href'])
 
-    team_games = []
+    team_games = {}
 
-    for link in game_links:
-        r = requests.get(
-            link.replace('game/_/gameId/', 'matchup?gameId=')
-        )
-
+    for i in range(0, len(game_links)):
+        link = game_links[i]
+        game_id = re.search('gameId/[0-9]+', link).group().replace('gameId/',
+                                                                   '')
         try:
-            boxscore_df = pd.read_html(r.text, attrs={'id': 'linescore'})[0]
-        except ValueError:
+            plays = scrape_plays(game_id)
+        except KeyError:
             continue
 
-        team_index = boxscore_df.loc[
-            lambda x: x['Unnamed: 0'] == team['code']
-        ].index[0]
-
-        opp_index = 1 if team_index == 0 else 0
-
-        stat_df = pd.read_html(r.text, match='Matchup')[0]
-
-        stat_df = stat_df.rename(columns={
-            'Unnamed: 1': 'team' if team_index == 0 else 'opp',
-            'Unnamed: 2': 'team' if team_index == 1 else 'opp'
-        })
-
-        col_labels = {
-            '1st Downs': '1st_downs',
-            '3rd down efficiency': '3rd_down_eff',
-            '4th down efficiency': '4th_down_eff',
-            'Total Yards': 'total_yards',
-            'Passing': 'pass_yards',
-            'Comp-Att': 'pass_eff',
-            'Yards per pass': 'pass_ypa',
-            'Interceptions thrown': 'ints',
-            'Rushing': 'rush_yards',
-            'Rushing Attempts': 'rush_att',
-            'Yards per rush': 'rush_ypa',
-            'Penalties': 'penalties',
-            'Turnovers': 'tos',
-            'Fumbles lost': 'fumbles_lost',
-            'Possession': 'time_of_possession'
-        }
-
-        stat_df['Matchup'] = stat_df['Matchup'].apply(
-            lambda x: col_labels[x] if col_labels[x] else x
-        )
-
-        stats_dict = stat_df.to_dict(orient='dict')
-
-        new_dict = {
-            'team': {},
-            'opp': {}
-        }
-
-        for index in range(len(stats_dict['Matchup'])):
-            category = stats_dict['Matchup'][index]
-            if category == 'pass_ypa' or category == 'rush_ypa':
-                continue
-
-            for key in new_dict:
-                value = stats_dict[key][index]
-                if category == '3rd_down_eff' or category == '4th_down_eff':
-                    values = value.split('-')
-                    new_dict[key][category.replace('_eff', 's')] = values[0]
-                    new_dict[key][category.replace('_eff', '_att')] = values[1]
-                elif category == 'pass_eff':
-                    values = value.split('-')
-                    new_dict[key][category.replace('_eff', '_cmp')] = values[0]
-                    new_dict[key][category.replace('_eff', '_att')] = values[1]
-                elif category == 'penalties':
-                    values = value.split('-')
-                    new_dict[key]['penalties'] = values[0]
-                    new_dict[key]['penalty_yards'] = values[1]
-                else:
-                    new_dict[key][category] = value
-
-        new_dict['team']['points'] = str(boxscore_df.loc[team_index].loc['T'])
-        new_dict['opp']['points'] = str(boxscore_df.loc[opp_index].loc['T'])
-
-        team_games.append(new_dict)
+        team_games[game_id] = plays
 
     return team_games
 
 
-team_index = 14
+def scrape_team_data(team):
+    team_roster = scrape_roster(team['id'])
+
+    team_schedule = scrape_schedule(team['id'])
+
+    team_stats = scrape_stats(team)
+
+    return team_roster, team_schedule, team_stats
 
 
 def scrape_all_data():
-    global team_index
-
     roster = {}
     schedule = {}
     stats = {}
 
-    for team in teams_list:
-        print('Scraping roster for team {}...   '.format(team_index), end='\r')
+    for i in range(0, len(teams_list)):
+        team = teams_list[i]
 
-        team_roster = scrape_roster(team['id'])
+        print('Scraping team {} data...'.format(i + 1))
+
+        team_roster, team_schedule, team_stats = scrape_team_data(team)
 
         roster[team['id']] = team_roster
-
-        print('Scraping schedule for team {}...'.format(team_index), end='\r')
-
-        team_schedule = scrape_schedule(team['id'])
-
         schedule[team['id']] = team_schedule
-
-        print('Scraping stats for team {}...   '.format(team_index), end='\r')
-
-        team_stats = scrape_stats(team)
-
         stats[team['id']] = team_stats
-
-        team_index += 1
 
     return roster, schedule, stats
 
@@ -262,7 +210,7 @@ def write_file(path, data):
 if __name__ == '__main__':
     roster, schedule, stats = scrape_all_data()
 
-    print('Writing files...             '.format(team_index), end='\r')
+    print('Writing files...')
     write_file('data/schedule.json', schedule)
     write_file('data/roster.json', roster)
     write_file('data/stats.json', stats)

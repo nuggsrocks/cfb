@@ -1,14 +1,14 @@
+import math
+
 import pandas as pd
 
 import numpy as np
 
 import matplotlib.pyplot as plt
 
-from sklearn import svm
+from sklearn import linear_model
 
 from sklearn.model_selection import train_test_split
-
-from sklearn.metrics import r2_score
 
 import json
 
@@ -93,6 +93,12 @@ def set_stat_dtype(series):
 
 stats_df = stats_df.apply(set_stat_dtype)
 
+stats_df['rush_ypa'] = stats_df['rush_yards'] / stats_df['rush_att']
+stats_df['pass_ypa'] = stats_df['pass_yards'] / stats_df['pass_att']
+stats_df['plays'] = stats_df['rush_att'] + stats_df['pass_att']
+stats_df['yards_per_play'] = stats_df['total_yards'] / stats_df['plays']
+stats_df['3rd_down_%'] = stats_df['3rd_downs'] / stats_df['3rd_down_att']
+
 team_df = stats_df.xs('team', level=1)
 opp_df = stats_df.xs('opp', level=1)
 
@@ -117,12 +123,12 @@ class Teams:
         return self.df.loc[self.df['team_name'] == item]
 
     def rank_by_total(self, split, category):
-        return self.df.xs(split, level=1).groupby(['team_name'])[category].sum().sort_values(ascending=False)
+        return self.df.xs(split, level=1).groupby(['team_name'])[
+            category].sum().sort_values(ascending=False)
 
-
-teams = Teams(stats_df)
-
-print(teams.rank_by_total('team', 'points'))
+    def rank_by_avg(self, split, category):
+        return self.df.xs(split, level=1).groupby(['team_name'])[
+            category].mean().sort_values(ascending=False)
 
 
 def select_category(split, category):
