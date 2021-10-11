@@ -1,3 +1,5 @@
+from multiprocessing import Pool
+
 import requests
 import os
 import re
@@ -11,8 +13,8 @@ roster_url = 'https://www.espn.com/college-football/team/roster/_/id/'
 schedule_url = 'https://www.espn.com/college-football/team/schedule/_/id/'
 
 
-def scrape_roster(team_id):
-    roster_res = requests.get(roster_url + team_id)
+def scrape_roster(team):
+    roster_res = requests.get(roster_url + team['id'])
 
     roster_dfs = pd.read_html(roster_res.text)
 
@@ -21,8 +23,6 @@ def scrape_roster(team_id):
     )
 
     roster_df = roster_df.drop(columns=['Unnamed: 0'])
-
-    roster_dict = roster_df.to_dict()
 
     col_labels = {
         'Name': 'name',
@@ -33,55 +33,44 @@ def scrape_roster(team_id):
         'Birthplace': 'birthplace'
     }
 
-    new_dict = {}
+    roster_df = roster_df.rename(columns=col_labels)
 
-    for key in roster_dict:
-        new_dict[col_labels[key]] = roster_dict[key]
+    def split_name_num(str):
+        match = re.search('[0-9]+', str)
+        if match is None:
+            return pd.Series([str, None])
 
-    new_dict['number'] = {}
+        return pd.Series([str[0:match.span()[0]], str[match.span()[0]:]])
 
-    for index, value in new_dict['name'].items():
-        try:
-            number_index = re.search('[0-9]{1,2}', value).span()[0]
-        except AttributeError:
-            new_dict['number'][index] = None
-            continue
+    roster_df[['name', 'number']] = roster_df['name'].apply(split_name_num)
 
-        new_dict['number'][index] = value[number_index:]
-        new_dict['name'][index] = value[:number_index]
-
-    for index, value in new_dict['height'].items():
-        split_height = value.split('\'')
-
-        feet = split_height[0]
+    def format_height(str):
+        split_height = str.split('\'')
 
         try:
-            feet = int(feet)
-        except IndexError:
-            new_dict['height'][index] = None
-            continue
+            feet = int(split_height[0])
         except ValueError:
-            new_dict['height'][index] = None
-            continue
+            return None
 
-        inches = split_height[1].replace('"', '')
+        inches = int(split_height[1].replace('"', ''))
 
-        inches = int(inches) / 12
+        return feet + (inches / 12)
 
-        new_dict['height'][index] = feet + inches
+    roster_df['height'] = roster_df['height'].apply(format_height)
 
-    for index, value in new_dict['weight'].items():
-        new_dict['weight'][index] = value.replace(' lbs', '')
+    roster_df['weight'] = roster_df['weight'].str.replace(' lbs', '')
 
-    return new_dict
+    roster_df['team_id'] = team['id']
+
+    return roster_df
 
 
-def scrape_schedule(team_id):
-    schedule_res = requests.get(schedule_url + team_id)
+def scrape_schedule(team):
+    schedule_res = requests.get(schedule_url + team['id'])
 
     schedule_df = pd.read_html(schedule_res.text, header=1)[0]
 
-    schedule_dict = schedule_df.to_dict()
+    schedule_df = schedule_df.drop(columns=['HI PASS', 'HI RUSH', 'HI REC', 'Unnamed: 7'])
 
     col_labels = {
         'DATE': 'date',
@@ -90,25 +79,15 @@ def scrape_schedule(team_id):
         'W-L (CONF)': 'win_loss'
     }
 
-    new_dict = {}
+    schedule_df = schedule_df.rename(columns=col_labels)
 
-    for key in schedule_dict:
-        try:
-            new_dict[col_labels[key]] = schedule_dict[key]
-        except KeyError:
-            pass
+    cutoff = pd.RangeIndex(start=schedule_df[schedule_df['date'] == 'DATE'].index[0], stop=len(schedule_df))
 
-    cutoff_index = None
+    schedule_df = schedule_df.drop(index=cutoff)
 
-    for key, value in new_dict['date'].items():
-        if value == 'DATE':
-            cutoff_index = key
+    schedule_df['team_id'] = team['id']
 
-    for index in range(cutoff_index, len(new_dict['date'])):
-        for key in new_dict:
-            del new_dict[key][index]
-
-    return new_dict
+    return schedule_df
 
 
 def scrape_plays(id):
@@ -150,7 +129,7 @@ def scrape_stats(team):
         if re.search('game', tag['href']):
             game_links.append(tag['href'])
 
-    team_games = {}
+    team_df = pd.DataFrame()
 
     for i in range(0, len(game_links)):
         link = game_links[i]
@@ -161,38 +140,70 @@ def scrape_stats(team):
         except KeyError:
             continue
 
-        team_games[game_id] = plays
+        game_df = pd.DataFrame()
 
-    return team_games
+        for play in plays:
+            try:
+                match = re.search('End of|Timeout', play['type']['text'])
+            except KeyError:
+                continue
+
+            if match is not None:
+                continue
+
+            play['period'] = [play['period']['number']]
+            play['home_score'] = [play['homeScore']]
+            play['clock'] = [play['clock']['displayValue']]
+            play['type'] = [play['type']['text']]
+            play['stat_yards'] = [play['statYardage']]
+            play['away_score'] = [play['awayScore']]
+            play['start_yard_line'] = [play['start']['yardLine']]
+            play['down'] = [play['start']['down']]
+            play['distance'] = [play['start']['distance']]
+            play['team_id'] = [play['start']['team']['id']]
+            play['end_yard_line'] = [play['end']['yardLine']]
+
+            keys_to_delete = [
+                'scoringType',
+                'homeScore',
+                'statYardage',
+                'awayScore',
+                'wallclock',
+                'modified',
+                'start',
+                'id',
+                'end',
+                'sequenceNumber',
+                'scoringPlay',
+                'priority',
+                'text',
+                'mediaId'
+            ]
+
+            for key in keys_to_delete:
+                try:
+                    del play[key]
+                except KeyError:
+                    continue
+
+            game_df = game_df.append(pd.DataFrame(play), ignore_index=True)
+
+        game_df['game_id'] = game_id
+
+        team_df = team_df.append(game_df, ignore_index=True)
+
+    return team_df
 
 
 def scrape_team_data(team):
-    team_roster = scrape_roster(team['id'])
+    print('Scraping data for {}...'.format(team['name']))
+    team_roster = scrape_roster(team)
 
-    team_schedule = scrape_schedule(team['id'])
+    team_schedule = scrape_schedule(team)
 
     team_stats = scrape_stats(team)
 
     return team_roster, team_schedule, team_stats
-
-
-def scrape_all_data():
-    roster = {}
-    schedule = {}
-    stats = {}
-
-    for i in range(0, len(teams_list)):
-        team = teams_list[i]
-
-        print('Scraping team {} data...'.format(i + 1))
-
-        team_roster, team_schedule, team_stats = scrape_team_data(team)
-
-        roster[team['id']] = team_roster
-        schedule[team['id']] = team_schedule
-        stats[team['id']] = team_stats
-
-    return roster, schedule, stats
 
 
 try:
@@ -208,9 +219,21 @@ def write_file(path, data):
 
 
 if __name__ == '__main__':
-    roster, schedule, stats = scrape_all_data()
+    with Pool(14) as p:
+        dfs = p.map(scrape_team_data, teams_list)
+
+    roster_df = pd.DataFrame()
+    schedule_df = pd.DataFrame()
+    stats_df = pd.DataFrame()
+
+    for team in dfs:
+        roster_df = roster_df.append(team[0], ignore_index=True)
+        schedule_df = schedule_df.append(team[1], ignore_index=True)
+        stats_df = stats_df.append(team[2], ignore_index=True)
 
     print('Writing files...')
-    write_file('data/schedule.json', schedule)
-    write_file('data/roster.json', roster)
-    write_file('data/stats.json', stats)
+    write_file('data/roster.json', roster_df.to_json())
+    write_file('data/schedule.json', schedule_df.to_json())
+    write_file('data/stats.json', stats_df.to_json())
+
+    print('Done!')
